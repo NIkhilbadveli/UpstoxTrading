@@ -12,6 +12,9 @@ from upstox_utils import (
     exit_all_positions,
     get_current_positions
 )
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
 
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
@@ -76,13 +79,13 @@ def monitor_tickers(tickers):
 def start_monitoring(nse_tickers):
     promising_stocks = []
     while True:
-        current_time = datetime.now().time()
+        current_time = datetime.now(IST).time()
         if (
             datetime.strptime("09:15", "%H:%M").time()
             <= current_time
             < datetime.strptime("10:15", "%H:%M").time()
         ):
-            print("\nPhase 1: Monitoring all tickers: ", datetime.now())
+            print("\nPhase 1: Monitoring all tickers: ", datetime.now(IST))
             wait_time = 30
             monitor_tickers(nse_tickers)
         elif (
@@ -90,14 +93,14 @@ def start_monitoring(nse_tickers):
             <= current_time
             < datetime.strptime("15:30", "%H:%M").time()
         ):
-            print("\nPhase 2: Monitoring promising tickers: ", datetime.now())
+            print("\nPhase 2: Monitoring promising tickers: ", datetime.now(IST))
             wait_time = 60
 
             try:
                 # Get promising stocks from the file if the date is the same
                 with open("promising_stocks.txt", "r") as f:
                     promising_stocks_date, *promising_stocks = f.read().splitlines()
-                if promising_stocks_date == datetime.now().strftime("%Y-%m-%d"):
+                if promising_stocks_date == datetime.now(IST).strftime("%Y-%m-%d"):
                     print(f"Promising stocks found: {promising_stocks}")
                 else:
                     promising_stocks = []
@@ -114,7 +117,7 @@ def start_monitoring(nse_tickers):
                 ]
                 # Save these promising stocks to a file
                 with open("promising_stocks.txt", "w") as f:
-                    f.write(f"{datetime.now().strftime('%Y-%m-%d')}\n{'\n'.join(promising_stocks)}")
+                    f.write(f"{datetime.now(IST).strftime('%Y-%m-%d')}\n{'\n'.join(promising_stocks)}")
                 print(f"Promising stocks found: {promising_stocks}")
             else:
                 # Now monitor only the promising tickers
