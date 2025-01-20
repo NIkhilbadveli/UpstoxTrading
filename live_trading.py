@@ -51,7 +51,7 @@ def monitor_ticker(ticker_symbol):
         return promising
     last_price = data["High"].iloc[-1]
     percent_change = (last_price - opening_price) / opening_price * 100
-    if percent_change >= 18 and ticker_symbol not in stocks_already_bought:
+    if percent_change >= 18 and ticker_symbol.replace(".NS", "") not in stocks_already_bought:
         # Ensure amount_per_trade stays between 15000 and 100000
         amount_per_trade = max(0.3 * get_balance(), 15000)
         amount_per_trade = min(amount_per_trade, 100000)
@@ -141,7 +141,7 @@ def do_live_trading():
     current_positions = get_current_positions()
     if current_positions:
         stocks_already_bought = [position["trading_symbol"] for position in current_positions
-                                 if position["sell_price"] == 0]
+                                 if position["quantity"] > 0]
         print(f"Already bought stocks: {stocks_already_bought}")
 
     start_monitoring(stock_symbols)
