@@ -87,7 +87,7 @@ async def run_script(update: Update):
     print(f"Script started with code: {entered_code}")
     do_live_trading()
     print("Script stopped automatically.")
-    await update.message.reply_text("Script stopped automatically.")
+    # await update.message.reply_text("Script stopped automatically.")
     script_running = False
     entered_code = None
 
