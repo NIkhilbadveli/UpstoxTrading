@@ -9,9 +9,11 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
-
+import pytz
 from live_trading import do_live_trading
 from upstox_utils import exit_all_positions, login_to_upstox
+
+IST = pytz.timezone("Asia/Kolkata")
 
 # Global variable to store the entered code
 entered_code = None
@@ -43,7 +45,17 @@ async def get_upstox_login_url(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def start_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global script_running
-    if entered_code:
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    try:
+        with open("login_data.txt", "r") as f:
+            last_login_date, access_token = f.read().strip().split(",")
+    except (FileNotFoundError, ValueError):
+        last_login_date, access_token = "", ""
+
+    if last_login_date == today:
+        print("Already logged in today.")
+    
+    if entered_code or last_login_date == today:
         # Ask for confirmation before starting the script
         keyboard = [
             [
