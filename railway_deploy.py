@@ -10,7 +10,7 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
-from UpstoxTrading.live_trading import do_live_trading
+from live_trading import do_live_trading
 from upstox_utils import exit_all_positions, login_to_upstox
 
 # Global variable to store the entered code
