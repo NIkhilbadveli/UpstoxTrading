@@ -197,8 +197,4 @@ def do_live_trading():
 
     print(f"Already bought stocks: {stocks_already_bought}")
 
-    # Step 1: Initial update of promising stocks list
-    update_promising_stocks(stock_symbols)
-
-    # Step 2: Start monitoring promising stocks
     start_monitoring(promising_stocks)
