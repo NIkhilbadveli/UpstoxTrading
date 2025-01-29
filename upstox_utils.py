@@ -1,5 +1,6 @@
 from datetime import datetime
 
+import pytz
 import upstox_client
 import webbrowser
 import pandas as pd
@@ -7,9 +8,10 @@ import pandas as pd
 # Replace with your Upstox API credentials
 API_KEY = "c0147464-89c2-4b2c-9f8a-132f9e105027"
 API_SECRET = "c7r53ceqzb"
+IST = pytz.timezone("Asia/Kolkata")
 
 
-def login_to_upstox(code):
+def login_to_upstox_using_code(code):
     today = datetime.now().strftime("%Y-%m-%d")
     try:
         with open("login_data.txt", "r") as f:
@@ -175,10 +177,16 @@ def exit_all_positions():
     try:
         exited_positions = []
         for position in get_current_positions():
-            if position["sell_price"] > 0:
-                continue
-            sell_shares(position["trading_symbol"], position["quantity"])
-            exited_positions.append(position["trading_symbol"])
+            if position["quantity"] > 0:
+                sell_shares(position["trading_symbol"], position["quantity"])
+                exited_positions.append(position["trading_symbol"])
+
+        current_holdings = get_current_holdings()
+        for holding in current_holdings:
+            if holding["quantity"] > 0 and holding["cnc_used_quantity"] == 0:
+                sell_shares(holding["trading_symbol"], holding["quantity"])
+                exited_positions.append(holding["trading_symbol"])
+
         print(f"All positions exited - {exited_positions}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
@@ -195,19 +203,13 @@ def get_current_positions():
         print(f"An unexpected error occurred: {e}")
         return None
 
-
-if __name__ == "__main__":
-    login_to_upstox()
+def get_current_holdings():
+    """Positions become holdings by next day"""
     try:
-        print("Starting trading...")
-        exit_all_positions()
-        # print(get_current_positions())
-        # print(get_balance())
-        # buy_order = buy_shares("OLAELEC", 1)
-        # if buy_order:
-        #     print("Buy order details:", buy_order)
-        # sell_order = sell_shares("OLAELEC", 1)
-        # if sell_order:
-        #     print("Sell order details:", sell_order)
+        api_client = get_upstox_client()
+        holdings_api = upstox_client.PortfolioApi(api_client)
+        holdings_data = holdings_api.get_holdings(api_version="v2")
+        return holdings_data.to_dict()["data"]
     except Exception as e:
-        print(f"Main program error: {e}")
+        print(f"An unexpected error occurred: {e}")
+        return None
