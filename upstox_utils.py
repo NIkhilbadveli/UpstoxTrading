@@ -107,7 +107,8 @@ def place_order(
         order_status = order_status_raw["status"]
         order_status_message = order_status_raw["status_message"]
         if order_status == "rejected":
-            print(f"Order rejected for {order_status_raw["trading_symbol"]}: {order_status_message}")
+            trading_symbol = order_status_raw["trading_symbol"]
+            print(f"Order rejected for {trading_symbol}: {order_status_message}")
             return None
         return api_response
     except Exception as e:
@@ -202,6 +203,7 @@ def get_current_positions():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return None
+
 
 def get_current_holdings():
     """Positions become holdings by next day"""

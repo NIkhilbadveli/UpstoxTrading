@@ -21,6 +21,8 @@ logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
 MAX_STOCKS_TO_BUY = 3
 IST = pytz.timezone("Asia/Kolkata")
 
+stocks_already_bought = []
+
 
 def get_data(ticker, period="1d", interval="1m"):
     try:
@@ -141,6 +143,7 @@ def update_nse_tickers_list():
 
 
 def do_live_trading():
+    global stocks_already_bought
     update_nse_tickers_list()
 
     # Read the NSE tickers from the CSV file
@@ -151,7 +154,6 @@ def do_live_trading():
         .tolist()
     )
 
-    stocks_already_bought = []  # To keep track of stocks already bought. Remove .NS
     # Current positions only applies to intraday, they become holdings by next morning
     current_positions = get_current_positions()
     if current_positions:
