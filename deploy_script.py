@@ -1,3 +1,5 @@
+import asyncio
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler,
@@ -146,12 +148,12 @@ def main():
     application.run_polling()
 
 
-send_telegram_alert("🚨 Bot is restarting...")
+# send_telegram_alert("🚨 Bot is restarting...")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        send_telegram_alert(f"⚠️ Bot crashed! Error: {str(e)}")
+        # send_telegram_alert(f"⚠️ Bot crashed! Error: {str(e)}")
         raise e
