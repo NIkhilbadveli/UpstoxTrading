@@ -93,25 +93,36 @@ def monitor_tickers(tickers):
 # Main function to handle time-based phase execution
 def start_monitoring(nse_tickers):
     wait_time = 30
+    last_update_time = None
+
     while True:
         current_time = datetime.now(IST).time()
+
+        # Update promising stocks every 30 minutes (if within trading hours)
         if (
-            datetime.strptime("09:15", "%H:%M").time()
-            <= current_time
-            < datetime.strptime("15:30", "%H:%M").time()
+                datetime.strptime("09:15", "%H:%M").time()
+                <= current_time
+                < datetime.strptime("15:30", "%H:%M").time()
         ):
+            if last_update_time is None or (datetime.now() - last_update_time).seconds >= 1800:
+                print("Updating promising stocks list...")
+                update_promising_stocks(nse_tickers)
+                last_update_time = datetime.now()
+
+            # Monitor only the promising stocks
             print("\nPhase 1: Monitoring promising tickers: ", datetime.now(IST))
             monitor_tickers(promising_stocks)
+
         else:
             if current_time < datetime.strptime("09:15", "%H:%M").time():
                 print("Before 9:15 AM. Waiting for the market to open...")
-                time.sleep(30)
+                time.sleep(wait_time)
             else:
                 print("Outside trading hours. Try after 9:15 AM tomorrow...")
                 break
 
-        print("Sleeping for 1 minute...")
-        time.sleep(wait_time)  # Sleep for a minute before checking the time again
+        print("Sleeping for 30 seconds...")
+        time.sleep(wait_time)
 
 
 def update_nse_tickers_list():
@@ -191,9 +202,3 @@ def do_live_trading():
 
     # Step 2: Start monitoring promising stocks
     start_monitoring(promising_stocks)
-
-    # Step 3: Update promising stocks list every 30 minutes
-    while True:
-        print("Updating promising stocks list...")
-        update_promising_stocks(stock_symbols)
-        time.sleep(1800)  # Sleep for 30 minutes before updating again
