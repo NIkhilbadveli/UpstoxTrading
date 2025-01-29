@@ -42,6 +42,7 @@ def get_yesterday_close_price(ticker):
 
 # Reusable function for monitoring a single ticker
 def monitor_ticker(ticker_symbol):
+    global stocks_already_bought
     ticker = yf.Ticker(ticker_symbol)
     promising = False
     data = get_data(ticker)
