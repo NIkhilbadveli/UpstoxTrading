@@ -7,10 +7,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import logging
 from upstox_utils import (
-    login_to_upstox_using_code,
     buy_shares,
     get_balance,
-    exit_all_positions,
     get_current_positions,
     get_current_holdings,
 )

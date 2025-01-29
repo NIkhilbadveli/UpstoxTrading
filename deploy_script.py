@@ -11,6 +11,7 @@ import pytz
 from live_trading import do_live_trading
 from upstox_utils import exit_all_positions, login_to_upstox_using_code
 from datetime import datetime
+from telegram import Bot
 
 IST = pytz.timezone("Asia/Kolkata")
 
@@ -21,6 +22,13 @@ script_running = False
 
 # Upstox API Key
 API_KEY = "c0147464-89c2-4b2c-9f8a-132f9e105027"
+
+
+async def send_telegram_alert(message):
+    chat_id = "5206375205"
+
+    bot = Bot(token=bot_token)
+    await bot.send_message(chat_id=chat_id, text=message)
 
 
 async def get_upstox_login_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,5 +146,12 @@ def main():
     application.run_polling()
 
 
+send_telegram_alert("🚨 Bot is restarting...")
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        send_telegram_alert(f"⚠️ Bot crashed! Error: {str(e)}")
+        raise e
