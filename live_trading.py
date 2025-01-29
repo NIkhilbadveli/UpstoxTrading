@@ -1,5 +1,4 @@
 from datetime import datetime
-
 import pytz
 import yfinance as yf
 import pandas as pd
@@ -20,6 +19,7 @@ MAX_STOCKS_TO_BUY = 3
 IST = pytz.timezone("Asia/Kolkata")
 
 stocks_already_bought = []
+promising_stocks = []  # List of promising stocks (up by 5% or more)
 
 
 def get_data(ticker, period="1d", interval="1m"):
@@ -72,6 +72,17 @@ def monitor_ticker(ticker_symbol):
     return promising
 
 
+# Function to update promising stocks list
+def update_promising_stocks(tickers):
+    global promising_stocks
+    promising_stocks = []  # Reset the list of promising stocks
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(monitor_ticker, tickers))
+    # Store only those tickers that are promising
+    promising_stocks = [ticker for ticker, is_promising in zip(tickers, results) if is_promising]
+    print(f"Promising stocks updated: {promising_stocks}")
+
+
 # Bigger function that uses threading to monitor multiple tickers
 def monitor_tickers(tickers):
     with ThreadPoolExecutor() as executor:
@@ -89,8 +100,8 @@ def start_monitoring(nse_tickers):
             <= current_time
             < datetime.strptime("15:30", "%H:%M").time()
         ):
-            print("\nPhase 1: Monitoring all tickers: ", datetime.now(IST))
-            monitor_tickers(nse_tickers)
+            print("\nPhase 1: Monitoring promising tickers: ", datetime.now(IST))
+            monitor_tickers(promising_stocks)
         else:
             if current_time < datetime.strptime("09:15", "%H:%M").time():
                 print("Before 9:15 AM. Waiting for the market to open...")
@@ -142,7 +153,7 @@ def update_nse_tickers_list():
 
 
 def do_live_trading():
-    global stocks_already_bought
+    global stocks_already_bought, promising_stocks
     update_nse_tickers_list()
 
     # Read the NSE tickers from the CSV file
@@ -175,4 +186,14 @@ def do_live_trading():
 
     print(f"Already bought stocks: {stocks_already_bought}")
 
-    start_monitoring(stock_symbols)
+    # Step 1: Initial update of promising stocks list
+    update_promising_stocks(stock_symbols)
+
+    # Step 2: Start monitoring promising stocks
+    start_monitoring(promising_stocks)
+
+    # Step 3: Update promising stocks list every 30 minutes
+    while True:
+        print("Updating promising stocks list...")
+        update_promising_stocks(stock_symbols)
+        time.sleep(1800)  # Sleep for 30 minutes before updating again
