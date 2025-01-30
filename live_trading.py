@@ -171,9 +171,11 @@ def start_monitoring(nse_tickers):
 def auto_sell_if_stop_loss_hit():
     """Take already bought stocks list and sell if stop loss is hit by calculating the loss from today's high"""
     for position in get_current_positions():
-        if position["quantity"] <= 0:
-            continue
         stock = position["trading_symbol"]
+        quantity = position["quantity"]
+        if quantity <= 0:
+            continue
+
         ticker = yf.Ticker(f"{stock}.NS")
         data = get_data(ticker)
         today_high = get_data(ticker, interval="1d", period="5d")["High"].iloc[-1]
@@ -182,9 +184,9 @@ def auto_sell_if_stop_loss_hit():
         last_price = data["High"].iloc[-1]
         percent_change = (last_price - today_high) / today_high * 100
         if percent_change <= -STOP_LOSS:
-            sell_order_details = sell_shares(stock, position["quantity"])
+            sell_order_details = sell_shares(stock, quantity)
             if sell_order_details:
-                print(f"Sold {position["quantity"]} shares of {stock} at {last_price}")
+                print(f"Sold {quantity} shares of {stock} at {last_price}")
 
 
 def run_stop_loss_check():
