@@ -122,6 +122,7 @@ def buy_shares(symbol, quantity, order_type="MARKET", price=0, product_type="D")
     instrument = get_instrument_by_symbol(symbol)
     if instrument:
         transaction_type_enum = "BUY"
+        print(f"Trying to buy {quantity} shares of {symbol}...")
         return place_order(
             transaction_type_enum,
             instrument,

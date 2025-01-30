@@ -63,6 +63,9 @@ def monitor_ticker(ticker_symbol):
         amount_per_trade = min(amount_per_trade, 100000)
         # Calculate quantity based on last_price and amount_per_trade
         quantity = amount_per_trade // last_price
+        if quantity == 0:
+            print(f"Skipping {ticker_symbol} due to insufficient funds")
+            return promising
         buy_order_details = buy_shares(ticker_symbol.replace(".NS", ""), quantity)
         if buy_order_details:
             print(f"Bought {quantity} shares of {ticker_symbol} at {last_price}")
@@ -233,5 +236,3 @@ def do_live_trading():
 
     stop_loss_thread = threading.Thread(target=run_stop_loss_check)
     stop_loss_thread.start()
-
-do_live_trading()
