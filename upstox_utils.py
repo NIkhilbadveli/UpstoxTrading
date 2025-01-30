@@ -10,6 +10,7 @@ API_KEY = "c0147464-89c2-4b2c-9f8a-132f9e105027"
 API_SECRET = "c7r53ceqzb"
 IST = pytz.timezone("Asia/Kolkata")
 
+current_positions_api_client = None
 
 def login_to_upstox_using_code(code):
     today = datetime.now().strftime("%Y-%m-%d")
@@ -194,15 +195,17 @@ def exit_all_positions():
 
 
 def get_current_positions():
-    """Fetches the current positions."""
+    global current_positions_api_client
     try:
-        api_client = get_upstox_client()
-        positions_api = upstox_client.PortfolioApi(api_client)
+        if current_positions_api_client is None:
+            current_positions_api_client = get_upstox_client()
+        current_positions_api_client = get_upstox_client()
+        positions_api = upstox_client.PortfolioApi(current_positions_api_client)
         positions_data = positions_api.get_positions(api_version="v2")
         return positions_data.to_dict()["data"]
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        return None
+        return []
 
 
 def get_current_holdings():

@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 import pytz
 import yfinance as yf
@@ -9,13 +10,14 @@ from upstox_utils import (
     buy_shares,
     get_balance,
     get_current_positions,
-    get_current_holdings,
+    get_current_holdings, sell_shares,
 )
 
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
 
 MAX_STOCKS_TO_BUY = 3
+STOP_LOSS = 3  # In % from today's high
 IST = pytz.timezone("Asia/Kolkata")
 
 stocks_already_bought = []
@@ -90,41 +92,6 @@ def monitor_tickers(tickers):
     return results
 
 
-# Main function to handle time-based phase execution
-def start_monitoring(nse_tickers):
-    wait_time = 30
-    last_update_time = None
-
-    while True:
-        current_time = datetime.now(IST).time()
-
-        # Update promising stocks every 30 minutes (if within trading hours)
-        if (
-                datetime.strptime("09:15", "%H:%M").time()
-                <= current_time
-                < datetime.strptime("15:30", "%H:%M").time()
-        ):
-            if last_update_time is None or (datetime.now() - last_update_time).seconds >= 1800:
-                print("Updating promising stocks list...")
-                update_promising_stocks(nse_tickers)
-                last_update_time = datetime.now()
-
-            # Monitor only the promising stocks
-            print("\nPhase 1: Monitoring promising tickers: ", datetime.now(IST))
-            monitor_tickers(promising_stocks)
-
-        else:
-            if current_time < datetime.strptime("09:15", "%H:%M").time():
-                print("Before 9:15 AM. Waiting for the market to open...")
-                time.sleep(wait_time)
-            else:
-                print("Outside trading hours. Try after 9:15 AM tomorrow...")
-                break
-
-        print("Sleeping for 30 seconds...")
-        time.sleep(wait_time)
-
-
 def update_nse_tickers_list():
     from requests import Session
 
@@ -163,6 +130,70 @@ def update_nse_tickers_list():
         print(f"An error occurred: {e}")
 
 
+# Main function to handle time-based phase execution
+def start_monitoring(nse_tickers):
+    wait_time = 30
+    last_update_time = None
+
+    while True:
+        current_time = datetime.now(IST).time()
+
+        # Update promising stocks every 30 minutes (if within trading hours)
+        if (
+                datetime.strptime("09:15", "%H:%M").time()
+                <= current_time
+                < datetime.strptime("15:30", "%H:%M").time()
+        ):
+            if last_update_time is None or (datetime.now() - last_update_time).seconds >= 1800:
+                print("Updating promising stocks list...")
+                update_promising_stocks(nse_tickers)
+                last_update_time = datetime.now()
+
+            # Monitor only the promising stocks
+            print("\nPhase 1: Monitoring promising tickers: ", datetime.now(IST))
+            monitor_tickers(promising_stocks)
+
+        else:
+            if current_time < datetime.strptime("09:15", "%H:%M").time():
+                print("Before 9:15 AM. Waiting for the market to open...")
+                time.sleep(wait_time)
+            else:
+                print("Outside trading hours. Try after 9:15 AM tomorrow...")
+                break
+
+        print("Sleeping for 30 seconds...")
+        time.sleep(wait_time)
+
+
+def auto_sell_if_stop_loss_hit():
+    """Take already bought stocks list and sell if stop loss is hit by calculating the loss from today's high"""
+    for position in get_current_positions():
+        if position["quantity"] <= 0:
+            continue
+        stock = position["trading_symbol"]
+        ticker = yf.Ticker(f"{stock}.NS")
+        data = get_data(ticker)
+        today_high = get_data(ticker, interval="1d", period="5d")["High"].iloc[-1]
+        if data.empty:
+            continue
+        last_price = data["High"].iloc[-1]
+        percent_change = (last_price - today_high) / today_high * 100
+        if percent_change <= -STOP_LOSS:
+            sell_order_details = sell_shares(stock, position["quantity"])
+            if sell_order_details:
+                print(f"Sold {position["quantity"]} shares of {stock} at {last_price}")
+
+
+def run_stop_loss_check():
+    while True:
+        auto_sell_if_stop_loss_hit()
+        time.sleep(180)
+
+
+def run_start_monitoring(stock_symbols):
+    start_monitoring(stock_symbols)
+
+
 def do_live_trading():
     global stocks_already_bought, promising_stocks
     update_nse_tickers_list()
@@ -197,4 +228,10 @@ def do_live_trading():
 
     print(f"Already bought stocks: {stocks_already_bought}")
 
-    start_monitoring(stock_symbols)
+    monitoring_thread = threading.Thread(target=run_start_monitoring, args=(stock_symbols,))
+    monitoring_thread.start()
+
+    stop_loss_thread = threading.Thread(target=run_stop_loss_check)
+    stop_loss_thread.start()
+
+do_live_trading()
