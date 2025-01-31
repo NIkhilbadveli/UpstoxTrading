@@ -10,8 +10,9 @@ from upstox_utils import (
     buy_shares,
     get_balance,
     get_current_positions,
-    get_current_holdings, sell_shares,
+    get_current_holdings, sell_shares, get_previous_close_price, get_ohlc_data, get_open_orders,
 )
+import json
 
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
@@ -20,156 +21,57 @@ MAX_STOCKS_TO_BUY = 3
 STOP_LOSS = 3  # In % from today's high
 IST = pytz.timezone("Asia/Kolkata")
 
-holidays_df = pd.read_csv('market_holidays.csv')
-holidays = set(pd.to_datetime(holidays_df["Date"]).dt.date)
-promising_stocks = []  # List of promising stocks (up by 5% or more)
-
-
-def get_data(ticker, period="1d", interval="1m"):
-    try:
-        data = ticker.history(
-            period=period,
-            interval=interval,
-        )
-    except Exception as e:
-        data = pd.DataFrame()
-    return data
-
-
-def get_last_trading_date(ref_date):
-    """
-    Recursively finds the last trading day by avoiding weekends and holidays.
-
-    :param ref_date: The reference date (datetime.date)
-    :return: The last valid trading date (datetime.date)
-    """
-    # If it's a weekend (Saturday or Sunday) or a holiday, move back one day
-    while ref_date.weekday() in (5, 6) or ref_date in holidays:
-        ref_date -= timedelta(days=1)
-
-    return ref_date
-
-
-def get_yesterday_close_price(ticker):
-    data = get_data(ticker, period="5d", interval="1d")
-    yesterday_ist = datetime.now(IST).date() - timedelta(days=1)
-
-    if data.empty or data.shape[0] < 2 or data.index[-2].date() != get_last_trading_date(yesterday_ist):
-        return 0
-    return data["Close"].iloc[-2]
-
 
 # Reusable function for monitoring a single ticker
-def monitor_ticker(ticker_symbol):
-    ticker = yf.Ticker(ticker_symbol)
-    promising = False
-    data = get_data(ticker)
-    opening_price = get_yesterday_close_price(ticker)
-    if data.empty or opening_price == 0:
-        return promising
-    last_price = data["High"].iloc[-1]
-    percent_change = (last_price - opening_price) / opening_price * 100
-    if percent_change >= 18:
-        stocks_already_bought = get_already_bought_stocks()
-        if (len(stocks_already_bought) <= MAX_STOCKS_TO_BUY
-                and ticker_symbol.replace(".NS", "") not in stocks_already_bought):
-            # Ensure amount_per_trade stays between 7500 and 100000
-            amount_per_trade = max(0.30 * get_balance() / 2, 7500)
-            amount_per_trade = min(amount_per_trade, 100000)
-            # Calculate quantity based on last_price and amount_per_trade
-            quantity = amount_per_trade // last_price
-            if quantity == 0:
-                print(f"Skipping {ticker_symbol} due to insufficient funds")
-                return promising
-            buy_order_details = buy_shares(ticker_symbol.replace(".NS", ""), quantity)
-            if buy_order_details:
-                print(f"Bought {quantity} shares of {ticker_symbol} at {last_price}")
-                stocks_already_bought.append(ticker_symbol.replace(".NS", ""))
-    elif percent_change >= 5:
-        promising = True
-
-    return promising
-
-
-# Function to update promising stocks list
-def update_promising_stocks(tickers):
-    global promising_stocks
-    promising_stocks = []  # Reset the list of promising stocks
-    with ThreadPoolExecutor() as executor:
-        results = list(executor.map(monitor_ticker, tickers))
-    # Store only those tickers that are promising
-    promising_stocks = [ticker for ticker, is_promising in zip(tickers, results) if is_promising]
-    print(f"Promising stocks updated: {promising_stocks}")
-
-
-# Bigger function that uses threading to monitor multiple tickers
-def monitor_tickers(tickers):
-    with ThreadPoolExecutor() as executor:
-        results = list(executor.map(monitor_ticker, tickers))
-    return results
-
-
-def update_nse_tickers_list():
-    from requests import Session
-
-    # Initialize a session to maintain cookies
-    s = Session()
-
-    # Update session headers to emulate a browser
-    s.headers.update(
-        {
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.36"
-        }
-    )
-
-    try:
-        # Step 1: Get the cookies from the main NSE website
-        s.get("https://www.nseindia.com/")
-
-        # Step 2: Download the CSV file from the provided URL
-        nse_tickers_url = (
-            "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
-        )
-        response = s.get(nse_tickers_url)
-
-        # Step 3: Check if the response is successful
-        if response.status_code == 200:
-            # Step 4: Save the content to a file, overwriting an existing file
-            with open("nse_tickers.csv", "wb") as f:
-                f.write(response.content)
-            print("File downloaded and saved as 'nse_tickers.csv'")
-        else:
-            print(
-                f"Failed to download the file. HTTP status code: {response.status_code}"
-            )
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
+def monitor_tickers(symbols, instrument_keys, prev_close_dict):
+    ohlc_data = get_ohlc_data(symbols, instrument_keys)
+    for symbol, data in ohlc_data.items():
+        opening_price = prev_close_dict[symbol]
+        if opening_price is None:
+            continue
+        last_price = data["ltp"]
+        percent_change = (last_price - opening_price) / opening_price * 100
+        if percent_change >= 18:
+            stocks_already_bought = get_already_bought_stocks()
+            open_buy_orders = get_open_orders()
+            if (len(stocks_already_bought) <= MAX_STOCKS_TO_BUY
+                    and symbol not in stocks_already_bought and symbol not in open_buy_orders):
+                # Ensure amount_per_trade stays between 7500 and 100000
+                amount_per_trade = max(0.30 * get_balance() / 2, 7500)
+                amount_per_trade = min(amount_per_trade, 100000)
+                # Calculate quantity based on last_price and amount_per_trade
+                quantity = amount_per_trade // last_price
+                if quantity == 0:
+                    print(f"Skipping {symbol} due to insufficient funds")
+                    continue
+                buy_order_details = buy_shares(symbol.replace(".NS", ""), quantity)
+                if buy_order_details:
+                    print(f"Bought {quantity} shares of {symbol} at {last_price}")
 
 
 # Main function to handle time-based phase execution
-def start_monitoring(nse_tickers):
-    wait_time = 30
-    last_update_time = None
+def start_monitoring(symbols, instrument_keys):
+    wait_time = 60
+
+    prev_close_dict = {}
+    try:
+        with open(f"previous_close_prices/{datetime.now(IST).date()}.json", "r") as f:
+            prev_close_dict = json.load(f)
+    except FileNotFoundError:
+        print("Previous close prices file not found. Fetching previous close prices...")
+        prev_close_dict = get_previous_close_price(symbols, instrument_keys)
+        with open(f"previous_close_prices/{datetime.now(IST).date()}.json", "w") as f:
+            json.dump(prev_close_dict, f)
 
     while True:
         current_time = datetime.now(IST).time()
-
-        # Update promising stocks every 30 minutes (if within trading hours)
         if (
                 datetime.strptime("09:15", "%H:%M").time()
                 <= current_time
                 < datetime.strptime("15:30", "%H:%M").time()
         ):
-            if last_update_time is None or (datetime.now() - last_update_time).seconds >= 1800:
-                print("Updating promising stocks list...")
-                update_promising_stocks(nse_tickers)
-                last_update_time = datetime.now()
-
-            # Monitor only the promising stocks
-            print("\nPhase 1: Monitoring promising tickers: ", datetime.now(IST))
-            monitor_tickers(promising_stocks)
-
+            print("\nPhase 1: Monitoring all tickers: ", datetime.now(IST))
+            monitor_tickers(symbols, instrument_keys, prev_close_dict)
         else:
             if current_time < datetime.strptime("09:15", "%H:%M").time():
                 print("Before 9:15 AM. Waiting for the market to open...")
@@ -178,24 +80,23 @@ def start_monitoring(nse_tickers):
                 print("Outside trading hours. Try after 9:15 AM tomorrow...")
                 break
 
-        print("Sleeping for 30 seconds...")
+        print("Sleeping for 60 seconds...")
         time.sleep(wait_time)
 
 
-def auto_sell_if_stop_loss_hit():
+def auto_sell_if_stop_loss_hit(symbols, instrument_keys):
     """Take already bought stocks list and sell if stop loss is hit by calculating the loss from today's high"""
+    open_sell_orders = get_open_orders(transaction_type="SELL")
     for position in get_current_positions():
         stock = position["trading_symbol"]
         quantity = position["quantity"]
-        if quantity <= 0:
+        index = symbols.index(stock)
+        if index == -1 or quantity <= 0 or stock in open_sell_orders:
             continue
-
-        ticker = yf.Ticker(f"{stock}.NS")
-        data = get_data(ticker)
-        today_high = get_data(ticker, interval="1d", period="5d")["High"].iloc[-1]
-        if data.empty:
-            continue
-        last_price = data["High"].iloc[-1]
+        ins_key = instrument_keys[index]
+        ohlc = get_ohlc_data([stock], [ins_key])[stock]
+        last_price = ohlc["ltp"]
+        today_high = ohlc["high"]
         percent_change = (last_price - today_high) / today_high * 100
         if percent_change <= -STOP_LOSS:
             sell_order_details = sell_shares(stock, quantity)
@@ -203,36 +104,25 @@ def auto_sell_if_stop_loss_hit():
                 print(f"Sold {quantity} shares of {stock} at {last_price}")
 
 
-def run_stop_loss_check():
+def run_stop_loss_check(symbols, instrument_keys):
     while True:
-        auto_sell_if_stop_loss_hit()
+        auto_sell_if_stop_loss_hit(symbols, instrument_keys)
         time.sleep(180)
 
 
-def run_start_monitoring(stock_symbols):
-    start_monitoring(stock_symbols)
-
-
 def do_live_trading():
-    global promising_stocks
-    update_nse_tickers_list()
-
-    # Read the NSE tickers from the CSV file
-    tickers_df = pd.read_csv("nse_tickers.csv")
-    stock_symbols = (
-        tickers_df.query("` SERIES` == 'EQ'")["SYMBOL"]
-        .apply(lambda x: f"{x}.NS")
-        .tolist()
-    )
+    upstox_ins_keys = pd.read_csv("Upstox_Instruments_NSE.csv")
+    upstox_symbols = upstox_ins_keys["trading_symbol"].tolist()
+    upstox_ins_keys = upstox_ins_keys["instrument_key"].tolist()
 
     stocks_already_bought = get_already_bought_stocks()
 
     print(f"Already bought stocks: {stocks_already_bought}")
 
-    monitoring_thread = threading.Thread(target=run_start_monitoring, args=(stock_symbols,))
+    monitoring_thread = threading.Thread(target=start_monitoring, args=(upstox_symbols, upstox_ins_keys))
     monitoring_thread.start()
 
-    stop_loss_thread = threading.Thread(target=run_stop_loss_check)
+    stop_loss_thread = threading.Thread(target=run_stop_loss_check, args=(upstox_symbols, upstox_ins_keys))
     stop_loss_thread.start()
 
 

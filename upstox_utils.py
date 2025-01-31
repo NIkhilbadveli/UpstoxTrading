@@ -1,5 +1,6 @@
-from datetime import datetime
-
+from datetime import datetime, timedelta
+from typing import List, Union, Optional, Dict
+from time import sleep
 import pytz
 import upstox_client
 import webbrowser
@@ -9,8 +10,11 @@ import pandas as pd
 API_KEY = "c0147464-89c2-4b2c-9f8a-132f9e105027"
 API_SECRET = "c7r53ceqzb"
 IST = pytz.timezone("Asia/Kolkata")
+holidays_df = pd.read_csv('market_holidays.csv')
+holidays = set(pd.to_datetime(holidays_df["Date"]).dt.date)
 
 current_positions_api_client = None
+
 
 def login_to_upstox_using_code(code):
     today = datetime.now().strftime("%Y-%m-%d")
@@ -77,12 +81,12 @@ def get_instrument_by_symbol(symbol):
             return None
         return row["instrument_key"].iloc[0]
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred in get_instrument_by_symbol: {e}")
         return None
 
 
 def place_order(
-    transaction_type, instrument, quantity, order_type, product_type, price=None
+        transaction_type, instrument, quantity, order_type, product_type, price=None
 ):
     """Places an order."""
     try:
@@ -113,7 +117,7 @@ def place_order(
             return None
         return api_response
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred in place_order: {e}")
         return None
 
 
@@ -162,18 +166,106 @@ def get_balance():
         return None
 
 
-def get_last_traded_price(symbol):
+def get_last_traded_price(symbols, instrument_keys):
     """Fetches the last traded price for a given symbol."""
-    instrument = get_instrument_by_symbol(symbol)
+    instrument = ",".join(instrument_keys)
+
     try:
         api_client = get_upstox_client()
         quotes_api = upstox_client.MarketQuoteApi(api_client)
         quote_data = quotes_api.ltp(instrument, "api-version-2")
-        return quote_data.to_dict()["data"][f"NSE_EQ:{symbol}"]["last_price"]
+        return {s: quote_data.to_dict()["data"][f"NSE_EQ:{s}"]["last_price"] for s in symbols}
+    except Exception as e:
+        print(f"An unexpected error occurred in get_last_traded_price: {e}")
+        return None
+
+
+def get_ohlc_data(symbols, instrument_keys):
+    def chunks(lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    ohlc_data = {}
+    try:
+        api_client = get_upstox_client()
+        quotes_api = upstox_client.MarketQuoteApi(api_client)
+
+        for symbol_chunk, key_chunk in zip(chunks(symbols, 500), chunks(instrument_keys, 500)):
+            instrument = ",".join(key_chunk)
+            quote_data = quotes_api.get_market_quote_ohlc(instrument, interval="1d", api_version="v2")
+            quote_data_dict = quote_data.to_dict()["data"]
+            for s in symbol_chunk:
+                try:
+                    ohlc_data[s] = {
+                        "ltp": quote_data_dict[f"NSE_EQ:{s}"]["last_price"],
+                        "high": quote_data_dict[f"NSE_EQ:{s}"]["ohlc"]["high"]
+                    }
+                except KeyError:
+                    print(f"OHLC Data not found for {s}")
+                    ohlc_data[s] = None
+        return ohlc_data
+    except Exception as e:
+        print(f"An unexpected error occurred in get_ohlc_data: {e}")
+        return None
+
+
+def get_last_trading_date(ref_date):
+    """
+    Recursively finds the last trading day by avoiding weekends and holidays.
+
+    :param ref_date: The reference date (datetime.date)
+    :return: The last valid trading date (datetime.date)
+    """
+    # If it's a weekend (Saturday or Sunday) or a holiday, move back one day
+    while ref_date.weekday() in (5, 6) or ref_date in holidays:
+        ref_date -= timedelta(days=1)
+
+    return ref_date
+
+
+def get_previous_close_price(symbols, instrument_keys):
+    """Fetches the previous trading day close price for a given symbol."""
+    yesterday_ist = datetime.now(IST).date() - timedelta(days=1)
+    last_trading_date = get_last_trading_date(yesterday_ist)
+    from_date = (last_trading_date - timedelta(days=5)).strftime("%Y-%m-%d")
+    to_date = last_trading_date.strftime("%Y-%m-%d")
+
+    try:
+        api_client = get_upstox_client()
+        quotes_api = upstox_client.HistoryApi(api_client)
+        output = {}
+        for s, instrument in zip(symbols, instrument_keys):
+            try:
+                quote_data = quotes_api.get_historical_candle_data1(instrument, interval="day", from_date=from_date,
+                                                                    to_date=to_date, api_version="v2")
+                quote_data_dict = quote_data.to_dict()["data"]
+                output[s] = quote_data_dict['candles'][0][4]
+            except Exception as e:
+                print(f"Data not found for {s} on {last_trading_date}")
+                output[s] = None
+            sleep(0.1)
+        return output
+    except Exception as e:
+        print(f"An unexpected error occurred in get_previous_close_price: {e}")
+        return None
+
+
+def get_open_orders(transaction_type="BUY"):
+    """Fetches all open orders."""
+    try:
+        api_client = get_upstox_client()
+        orders_api = upstox_client.OrderApi(api_client)
+        orders_data = orders_api.get_order_book(api_version="v2")
+        # filter for status = "open" and transaction_type
+        filtered_orders = []
+        for order in orders_data.to_dict()["data"]:
+            if order["status"] == "open" and order["transaction_type"] == transaction_type:
+                filtered_orders.append(order["trading_symbol"].replace("-EQ", ""))
+        return filtered_orders
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return None
-
 
 def exit_all_positions():
     """Exits all open positions."""
@@ -219,3 +311,5 @@ def get_current_holdings():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return None
+
+print(get_open_orders())
