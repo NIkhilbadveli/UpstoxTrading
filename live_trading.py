@@ -1,5 +1,5 @@
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import yfinance as yf
 import pandas as pd
@@ -20,7 +20,8 @@ MAX_STOCKS_TO_BUY = 3
 STOP_LOSS = 3  # In % from today's high
 IST = pytz.timezone("Asia/Kolkata")
 
-stocks_already_bought = []
+holidays_df = pd.read_csv('market_holidays.csv')
+holidays = set(pd.to_datetime(holidays_df["Date"]).dt.date)
 promising_stocks = []  # List of promising stocks (up by 5% or more)
 
 
@@ -35,16 +36,31 @@ def get_data(ticker, period="1d", interval="1m"):
     return data
 
 
+def get_last_trading_date(ref_date):
+    """
+    Recursively finds the last trading day by avoiding weekends and holidays.
+
+    :param ref_date: The reference date (datetime.date)
+    :return: The last valid trading date (datetime.date)
+    """
+    # If it's a weekend (Saturday or Sunday) or a holiday, move back one day
+    while ref_date.weekday() in (5, 6) or ref_date in holidays:
+        ref_date -= timedelta(days=1)
+
+    return ref_date
+
+
 def get_yesterday_close_price(ticker):
     data = get_data(ticker, period="5d", interval="1d")
-    if data.empty or data.shape[0] < 2:
+    yesterday_ist = datetime.now(IST).date() - timedelta(days=1)
+
+    if data.empty or data.shape[0] < 2 or data.index[-2].date() != get_last_trading_date(yesterday_ist):
         return 0
     return data["Close"].iloc[-2]
 
 
 # Reusable function for monitoring a single ticker
 def monitor_ticker(ticker_symbol):
-    global stocks_already_bought
     ticker = yf.Ticker(ticker_symbol)
     promising = False
     data = get_data(ticker)
@@ -53,24 +69,22 @@ def monitor_ticker(ticker_symbol):
         return promising
     last_price = data["High"].iloc[-1]
     percent_change = (last_price - opening_price) / opening_price * 100
-    if (
-            percent_change >= 18
-            and len(stocks_already_bought) <= MAX_STOCKS_TO_BUY
-            and ticker_symbol.replace(".NS", "") not in stocks_already_bought
-    ):
-        # Ensure amount_per_trade stays between 7500 and 100000
-        amount_per_trade = max(0.30 * get_balance() / 2, 7500)
-        amount_per_trade = min(amount_per_trade, 100000)
-        # Calculate quantity based on last_price and amount_per_trade
-        quantity = amount_per_trade // last_price
-        if quantity == 0:
-            print(f"Skipping {ticker_symbol} due to insufficient funds")
-            return promising
-        buy_order_details = buy_shares(ticker_symbol.replace(".NS", ""), quantity)
-        if buy_order_details:
-            print(f"Bought {quantity} shares of {ticker_symbol} at {last_price}")
-            stocks_already_bought.append(ticker_symbol.replace(".NS", ""))
-
+    if percent_change >= 18:
+        stocks_already_bought = get_already_bought_stocks()
+        if (len(stocks_already_bought) <= MAX_STOCKS_TO_BUY
+                and ticker_symbol.replace(".NS", "") not in stocks_already_bought):
+            # Ensure amount_per_trade stays between 7500 and 100000
+            amount_per_trade = max(0.30 * get_balance() / 2, 7500)
+            amount_per_trade = min(amount_per_trade, 100000)
+            # Calculate quantity based on last_price and amount_per_trade
+            quantity = amount_per_trade // last_price
+            if quantity == 0:
+                print(f"Skipping {ticker_symbol} due to insufficient funds")
+                return promising
+            buy_order_details = buy_shares(ticker_symbol.replace(".NS", ""), quantity)
+            if buy_order_details:
+                print(f"Bought {quantity} shares of {ticker_symbol} at {last_price}")
+                stocks_already_bought.append(ticker_symbol.replace(".NS", ""))
     elif percent_change >= 5:
         promising = True
 
@@ -200,7 +214,7 @@ def run_start_monitoring(stock_symbols):
 
 
 def do_live_trading():
-    global stocks_already_bought, promising_stocks
+    global promising_stocks
     update_nse_tickers_list()
 
     # Read the NSE tickers from the CSV file
@@ -211,6 +225,19 @@ def do_live_trading():
         .tolist()
     )
 
+    stocks_already_bought = get_already_bought_stocks()
+
+    print(f"Already bought stocks: {stocks_already_bought}")
+
+    monitoring_thread = threading.Thread(target=run_start_monitoring, args=(stock_symbols,))
+    monitoring_thread.start()
+
+    stop_loss_thread = threading.Thread(target=run_stop_loss_check)
+    stop_loss_thread.start()
+
+
+def get_already_bought_stocks():
+    stocks_already_bought = []
     # Current positions only applies to intraday, they become holdings by next morning
     current_positions = get_current_positions()
     if current_positions:
@@ -219,7 +246,6 @@ def do_live_trading():
             for position in current_positions
             if position["quantity"] > 0
         ]
-
     current_holdings = get_current_holdings()
     if current_holdings:
         # cnc_used_quantity represents quantity of holdings blocked towards an open/completed order
@@ -230,11 +256,4 @@ def do_live_trading():
                 if holding["quantity"] > 0 and holding["cnc_used_quantity"] == 0
             ]
         )
-
-    print(f"Already bought stocks: {stocks_already_bought}")
-
-    monitoring_thread = threading.Thread(target=run_start_monitoring, args=(stock_symbols,))
-    monitoring_thread.start()
-
-    stop_loss_thread = threading.Thread(target=run_stop_loss_check)
-    stop_loss_thread.start()
+    return stocks_already_bought
