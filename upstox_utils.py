@@ -217,8 +217,11 @@ def get_last_trading_date(ref_date):
     :param ref_date: The reference date (datetime.date)
     :return: The last valid trading date (datetime.date)
     """
+    with open('special_trading_days.txt', 'r') as f:
+        special_trading_days = set(pd.to_datetime(f.read().splitlines()).date)
+
     # If it's a weekend (Saturday or Sunday) or a holiday, move back one day
-    while ref_date.weekday() in (5, 6) or ref_date in holidays:
+    while (ref_date.weekday() in (5, 6) and ref_date not in special_trading_days) or ref_date in holidays:
         ref_date -= timedelta(days=1)
 
     return ref_date
@@ -311,5 +314,3 @@ def get_current_holdings():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return None
-
-print(get_open_orders())
