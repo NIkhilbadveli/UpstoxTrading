@@ -39,7 +39,7 @@ async def get_upstox_login_url(update: Update, context: ContextTypes.DEFAULT_TYP
     # put the payload as query params
     payload = {
         "client_id": API_KEY,
-        "redirect_uri": "https://google.co.in/",
+        "redirect_uri": "https://httpbin.org/get",
         "response_type": "code",
     }
     url += "?"

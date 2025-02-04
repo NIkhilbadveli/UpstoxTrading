@@ -58,7 +58,7 @@ def get_and_save_access_token(code):
         "client_id": API_KEY,
         "client_secret": API_SECRET,
         "grant_type": "authorization_code",
-        "redirect_uri": "https://google.co.in/",
+        "redirect_uri": "https://httpbin.org/get",
     }
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
