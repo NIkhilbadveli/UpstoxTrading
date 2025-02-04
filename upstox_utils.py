@@ -210,27 +210,33 @@ def get_ohlc_data(symbols, instrument_keys):
         return None
 
 
-def get_last_trading_date(ref_date):
-    """
-    Recursively finds the last trading day by avoiding weekends and holidays.
+def get_last_trading_date():
+    instrument = "NSE_EQ|INE062A01020"  # for SBIN
+    today = datetime.now(IST).date()
+    from_date = (today - timedelta(days=5)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
 
-    :param ref_date: The reference date (datetime.date)
-    :return: The last valid trading date (datetime.date)
-    """
-    with open('special_trading_days.txt', 'r') as f:
-        special_trading_days = set(pd.to_datetime(f.read().splitlines()).date)
+    try:
+        api_client = get_upstox_client()
+        quotes_api = upstox_client.HistoryApi(api_client)
+        quote_data = quotes_api.get_historical_candle_data1(instrument, interval="day", from_date=from_date,
+                                                            to_date=to_date, api_version="v2")
+        quote_data_dict = quote_data.to_dict()["data"]
+        trading_dates = [datetime.strptime(candle[0], "%Y-%m-%dT%H:%M:%S%z").date() for candle in
+                         quote_data_dict['candles']]
+        trading_dates = [date for date in trading_dates if date != today]
+        last_trading_date = max(trading_dates) if trading_dates else None
+    except Exception as e:
+        print(f"An unexpected error occurred in get_last_trading_date: {e}")
+        last_trading_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # If it's a weekend (Saturday or Sunday) or a holiday, move back one day
-    while (ref_date.weekday() in (5, 6) and ref_date not in special_trading_days) or ref_date in holidays:
-        ref_date -= timedelta(days=1)
-
-    return ref_date
+    print(f"Last trading date: {last_trading_date}")
+    return last_trading_date
 
 
 def get_previous_close_price(symbols, instrument_keys):
     """Fetches the previous trading day close price for a given symbol."""
-    yesterday_ist = datetime.now(IST).date() - timedelta(days=1)
-    last_trading_date = get_last_trading_date(yesterday_ist)
+    last_trading_date = get_last_trading_date()
     from_date = (last_trading_date - timedelta(days=5)).strftime("%Y-%m-%d")
     to_date = last_trading_date.strftime("%Y-%m-%d")
 
@@ -269,6 +275,7 @@ def get_open_orders(transaction_type="BUY"):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return None
+
 
 def exit_all_positions():
     """Exits all open positions."""

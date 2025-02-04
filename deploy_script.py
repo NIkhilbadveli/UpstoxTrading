@@ -10,7 +10,7 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 import pytz
-from live_trading import do_live_trading
+from live_trading import start_live_trading, stop_live_trading, get_already_bought_stocks
 from upstox_utils import exit_all_positions, login_to_upstox_using_code
 from datetime import datetime
 from telegram import Bot
@@ -63,7 +63,7 @@ async def start_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if last_login_date == today:
         print("Already logged in today.")
-    
+
     if entered_code or last_login_date == today:
         # Ask for confirmation before starting the script
         keyboard = [
@@ -73,8 +73,9 @@ async def start_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        stocks_already_bought = get_already_bought_stocks()
         await update.message.reply_text(
-            "Are you sure you want to exit all positions and start the script?",
+            f"Are you sure you want to exit these positions - {stocks_already_bought} and start the script?",
             reply_markup=reply_markup,
         )
     else:
@@ -106,11 +107,15 @@ async def run_script(update: Update):
     global script_running, entered_code
     script_running = True
     print(f"Script started with code: {entered_code}")
-    do_live_trading()
-    print("Script stopped automatically.")
-    # await update.message.reply_text("Script stopped automatically.")
+    start_live_trading()
+
+
+async def stop_script(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global script_running, entered_code
     script_running = False
     entered_code = None
+    stop_live_trading()
+    await update.message.reply_text("Script stopped manually.")
 
 
 async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,6 +145,7 @@ def main():
     application.add_handler(CommandHandler("send_code", receive_code))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("start_trading", start_script))
+    application.add_handler(CommandHandler("stop_trading", stop_script))
 
     application.add_handler(CallbackQueryHandler(handle_confirmation))
 

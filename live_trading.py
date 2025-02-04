@@ -10,7 +10,7 @@ from upstox_utils import (
     buy_shares,
     get_balance,
     get_current_positions,
-    get_current_holdings, sell_shares, get_previous_close_price, get_ohlc_data, get_open_orders,
+    get_current_holdings, sell_shares, get_previous_close_price, get_ohlc_data, get_open_orders, get_last_trading_date,
 )
 import json
 
@@ -20,12 +20,15 @@ logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
 MAX_STOCKS_TO_BUY = 3
 STOP_LOSS = 3  # In % from today's high
 IST = pytz.timezone("Asia/Kolkata")
+stop_event = threading.Event()
 
 
 # Reusable function for monitoring a single ticker
 def monitor_tickers(symbols, instrument_keys, prev_close_dict):
     ohlc_data = get_ohlc_data(symbols, instrument_keys)
     for symbol, data in ohlc_data.items():
+        if stop_event.is_set():
+            break
         opening_price = prev_close_dict[symbol]
         if opening_price is None:
             continue
@@ -53,17 +56,17 @@ def monitor_tickers(symbols, instrument_keys, prev_close_dict):
 def start_monitoring(symbols, instrument_keys):
     wait_time = 60
 
-    prev_close_dict = {}
+    last_trading_date = get_last_trading_date()
     try:
-        with open(f"previous_close_prices/{datetime.now(IST).date()}.json", "r") as f:
+        with open(f"previous_close_prices/{last_trading_date}.json", "r") as f:
             prev_close_dict = json.load(f)
     except FileNotFoundError:
         print("Previous close prices file not found. Fetching previous close prices...")
         prev_close_dict = get_previous_close_price(symbols, instrument_keys)
-        with open(f"previous_close_prices/{datetime.now(IST).date()}.json", "w") as f:
+        with open(f"previous_close_prices/{last_trading_date}.json", "w") as f:
             json.dump(prev_close_dict, f)
 
-    while True:
+    while not stop_event.is_set():
         current_time = datetime.now(IST).time()
         if (
                 datetime.strptime("09:15", "%H:%M").time()
@@ -88,6 +91,8 @@ def auto_sell_if_stop_loss_hit(symbols, instrument_keys):
     """Take already bought stocks list and sell if stop loss is hit by calculating the loss from today's high"""
     open_sell_orders = get_open_orders(transaction_type="SELL")
     for position in get_current_positions():
+        if stop_event.is_set():
+            break
         stock = position["trading_symbol"]
         quantity = position["quantity"]
         index = symbols.index(stock)
@@ -105,12 +110,12 @@ def auto_sell_if_stop_loss_hit(symbols, instrument_keys):
 
 
 def run_stop_loss_check(symbols, instrument_keys):
-    while True:
+    while not stop_event.is_set():
         auto_sell_if_stop_loss_hit(symbols, instrument_keys)
-        time.sleep(180)
+        time.sleep(30)
 
 
-def do_live_trading():
+def start_live_trading():
     upstox_ins_keys = pd.read_csv("Upstox_Instruments_NSE.csv")
     upstox_symbols = upstox_ins_keys["trading_symbol"].tolist()
     upstox_ins_keys = upstox_ins_keys["instrument_key"].tolist()
@@ -124,6 +129,11 @@ def do_live_trading():
 
     stop_loss_thread = threading.Thread(target=run_stop_loss_check, args=(upstox_symbols, upstox_ins_keys))
     stop_loss_thread.start()
+
+
+def stop_live_trading():
+    stop_event.set()
+    print("Stopping live trading...")
 
 
 def get_already_bought_stocks():
